@@ -1,0 +1,12 @@
+{
+  "name": "bna-claude-proxy",
+  "version": "1.0.0",
+  "description": "Proxy server for BNA auction copy generator",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
