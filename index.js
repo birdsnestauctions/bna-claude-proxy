@@ -25,7 +25,7 @@ require('http').createServer((req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/v1/messages') {
+  if (req.method !== 'POST' || !req.url.includes('messages')) {
     res.writeHead(404);
     res.end('Not found');
     return;
