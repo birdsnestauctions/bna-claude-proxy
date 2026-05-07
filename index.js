@@ -1,70 +1,77 @@
-const express = require('express');
 const https = require('https');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ALLOWED_ORIGIN = 'https://birdsnestauctions.github.io';
 
-// CORS
-app.use((req, res, next) => {
+require('http').createServer((req, res) => {
+
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
 
-app.use(express.json());
-
-// Health check
-app.get('/', (req, res) => {
-  res.send('BNA Claude Proxy is running.');
-});
-
-// Proxy endpoint
-app.post('/v1/messages', (req, res) => {
-  if (!ANTHROPIC_KEY) {
-    return res.status(500).json({ error: { message: 'API key not configured on server.' } });
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
 
-  const body = JSON.stringify(req.body);
+  if (req.method === 'GET' && req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('BNA Claude Proxy is running.');
+    return;
+  }
 
-  const options = {
-    hostname: 'api.anthropic.com',
-    path: '/v1/messages',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'Content-Length': Buffer.byteLength(body),
-    }
-  };
+  // Log every request so Render logs show exactly what's coming in
+  console.log(`${req.method} ${req.url}`);
 
-  const proxyReq = https.request(options, proxyRes => {
-    let data = '';
-    proxyRes.on('data', chunk => { data += chunk; });
-    proxyRes.on('end', () => {
-      res.status(proxyRes.statusCode).json(JSON.parse(data));
+  if (req.method !== 'POST' || req.url !== '/v1/messages') {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not found: ' + req.method + ' ' + req.url);
+    return;
+  }
+
+  if (!ANTHROPIC_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'API key not configured on server.' } }));
+    return;
+  }
+
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+
+    const options = {
+      hostname: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': Buffer.byteLength(body),
+      }
+    };
+
+    const proxyReq = https.request(options, proxyRes => {
+      let data = '';
+      proxyRes.on('data', chunk => { data += chunk; });
+      proxyRes.on('end', () => {
+        res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json' });
+        res.end(data);
+      });
     });
+
+    proxyReq.on('error', err => {
+      console.error('Proxy error:', err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Proxy error: ' + err.message } }));
+    });
+
+    proxyReq.write(body);
+    proxyReq.end();
   });
 
-  proxyReq.on('error', err => {
-    console.error('Proxy error:', err.message);
-    res.status(502).json({ error: { message: 'Proxy error: ' + err.message } });
-  });
-
-  proxyReq.write(body);
-  proxyReq.end();
-});
-
-// Catch-all — logs any unmatched routes so you can see what's hitting the proxy
-app.use((req, res) => {
-  console.log(`Unmatched request: ${req.method} ${req.url}`);
-  res.status(404).send('Not found');
-});
-
-app.listen(PORT, () => {
+}).listen(PORT, () => {
   console.log('BNA Claude Proxy running on port ' + PORT);
 });
